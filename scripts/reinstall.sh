@@ -26,6 +26,12 @@ done
 
 cd "${REPO_ROOT}"
 
+ICON_SET="${REPO_ROOT}/ReadAloud/Resources/Assets.xcassets/AppIcon.appiconset"
+if [[ ! -f "${ICON_SET}/icon_512x512@2x.png" ]]; then
+    echo "==> Generating app icon"
+    "${REPO_ROOT}/scripts/generate-icon.sh"
+fi
+
 if [[ ! -d "${PROJECT}" ]] || [[ "${REPO_ROOT}/project.yml" -nt "${PROJECT}/project.pbxproj" ]]; then
     if ! command -v xcodegen >/dev/null 2>&1; then
         echo "xcodegen not found. Install with: brew install xcodegen" >&2

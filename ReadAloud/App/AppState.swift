@@ -6,6 +6,11 @@ import AppKit
 @MainActor
 @Observable
 final class AppState {
+    /// Single instance shared between the SwiftUI scene, the hotkey bridge,
+    /// and the AppDelegate. We use a singleton because the hotkey is registered
+    /// before SwiftUI gets a chance to inject any environment.
+    static let shared = AppState()
+
     // MARK: – Persisted preferences
     var preferences: PreferencesStore.Snapshot = PreferencesStore.load()
     var pronunciationRules: [PronunciationRule] = PronunciationStore.load()
@@ -41,11 +46,19 @@ final class AppState {
     // MARK: – Read flow
     /// Entry point from the global hotkey. Captures selection, routes, and speaks.
     func handleReadHotkey() {
+        Log.hotkey.notice("Read hotkey fired")
         currentReadTask?.cancel()
         currentReadTask = Task { [weak self] in
             guard let self else { return }
+            // Re-check trust on every press — the user may have just granted it.
+            self.accessibilityTrusted = SelectionService.ensureAccessibilityTrust(prompt: false)
+            if !self.accessibilityTrusted {
+                await self.flashError("Grant Accessibility permission to ReadAloud in System Settings")
+                SelectionService.openAccessibilityPreferences()
+                return
+            }
             guard let capture = await SelectionService.capture() else {
-                await self.flashError("No selection")
+                await self.flashError("No text selected (or the app didn't expose its selection)")
                 return
             }
             let language = LanguageRouter.route(
