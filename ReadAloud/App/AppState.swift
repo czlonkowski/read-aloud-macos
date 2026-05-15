@@ -85,6 +85,39 @@ final class AppState {
         stop()
     }
 
+    /// Speaks a known-good test phrase. Bypasses selection capture so you can
+    /// verify audio output is working independently of the AX path.
+    func speakLiteral(_ language: SpokenLanguage) {
+        currentReadTask?.cancel()
+        let text: String = switch language {
+        case .english: "Hello. This is Read Aloud, ready to read your selection."
+        case .polish:  "Cześć. To jest Read Aloud — gotowy do czytania zaznaczonego tekstu."
+        }
+        let request = ReadRequest(text: text, language: language, sourceBundleID: nil, createdAt: .now)
+        lastRead = request
+        currentReadTask = Task { [weak self] in
+            guard let self else { return }
+            await self.coordinator.speak(request, preferences: self.preferences, rules: self.pronunciationRules)
+        }
+    }
+
+    /// Speaks whatever string is currently on the pasteboard.
+    func speakPasteboard() {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            Task { await self.flashError("Pasteboard is empty") }
+            return
+        }
+        let language = LanguageRouter.route(text: text, sourceBundleID: nil, overrides: perAppOverrides)
+        let request = ReadRequest(text: text, language: language, sourceBundleID: nil, createdAt: .now)
+        lastRead = request
+        currentReadTask?.cancel()
+        currentReadTask = Task { [weak self] in
+            guard let self else { return }
+            await self.coordinator.speak(request, preferences: self.preferences, rules: self.pronunciationRules)
+        }
+    }
+
     func pause() { coordinator.pause() }
     func resume() { coordinator.resume() }
     func stop() {
@@ -151,6 +184,7 @@ final class AppState {
     private func flashError(_ message: String) async {
         lastError = message
         Log.app.notice("\(message, privacy: .public)")
+        NSSound.beep()
         try? await Task.sleep(nanoseconds: 2_500_000_000)
         if lastError == message { lastError = nil }
     }

@@ -10,10 +10,21 @@ struct MenuBarMenu: View {
             Divider()
             playbackSection
             Divider()
+            diagnosticsSection
+            Divider()
             Button("Settings…") { openSettings() }
                 .keyboardShortcut(",")
             Button("Quit Read Aloud") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
+        }
+    }
+
+    @ViewBuilder
+    private var diagnosticsSection: some View {
+        Menu("Diagnostics") {
+            Button("Speak test phrase (English)") { state.speakLiteral(.english) }
+            Button("Speak test phrase (Polish)") { state.speakLiteral(.polish) }
+            Button("Read pasteboard") { state.speakPasteboard() }
         }
     }
 
