@@ -23,17 +23,17 @@ The Swift app is signed ad-hoc (Developer ID-style) and runs **un-sandboxed** be
 
 ## Setup
 
-### Build the Swift app
+### One-shot: build, install, launch
 
-Requires Xcode 16+ and `xcodegen`.
+Requires Xcode 16+ and `xcodegen` (`brew install xcodegen`).
 
 ```sh
-brew install xcodegen
-xcodegen generate
-open ReadAloud.xcodeproj
+./scripts/reinstall.sh
 ```
 
-The first run will prompt for **Accessibility** permission (read selected text) and, in some apps, **Input Monitoring** (synthesise ⌘C). Grant both via System Settings ▸ Privacy & Security.
+That regenerates the Xcode project, builds Debug, drops the result into `/Applications/ReadAloud.app` (admin prompt for the copy), and launches it. The first run will prompt for **Accessibility** permission — grant it via System Settings ▸ Privacy & Security ▸ Accessibility ▸ ReadAloud, then quit and relaunch. Some Electron apps (VS Code, Slack, Notion) additionally need **Input Monitoring** for the ⌘C fallback path.
+
+Re-run the same script anytime you change Swift sources.
 
 ### Installing the sidecar (optional)
 
@@ -47,15 +47,6 @@ brew install uv
 This sets up a Python 3.12 virtualenv at `~/Library/Application Support/ReadAloud/sidecar-venv`, registers a `launchd` agent (`com.czlonkowski.readaloud-sidecar`), and is ready to start on demand. Toggle "Enable neural sidecar" in Settings ▸ Neural to start using it.
 
 For Polish voice cloning, drop reference WAVs into `sidecar/voices/` (see `voices/README.md`).
-
-### Deploy locally
-
-```sh
-# Build once in Xcode (⌘B), then:
-./scripts/reinstall.sh
-```
-
-Copies the Debug build to `/Applications/ReadAloud.app` and re-registers it with `lsregister`.
 
 ## Default hotkeys
 

@@ -1,22 +1,66 @@
 #!/usr/bin/env bash
-# Drop the latest Debug build of Read Aloud into /Applications and re-register it.
-# Mirrors the personal reinstall pattern Romuald uses for MeetingTranscriber.
+# One-shot: regenerate Xcode project → build Debug → install to /Applications → launch.
+# Mirrors the personal install flow Romuald uses for MeetingTranscriber, but
+# bundles every step so it's a single CLI invocation:
+#
+#   ./scripts/reinstall.sh
+#
+# Pass --no-open to skip the final launch.
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="ReadAloud.app"
-DERIVED_BASE="${HOME}/Library/Developer/Xcode/DerivedData"
+PROJECT="${REPO_ROOT}/ReadAloud.xcodeproj"
+SCHEME="ReadAloud"
+DERIVED="${REPO_ROOT}/build"
+PRODUCT_PATH="${DERIVED}/Build/Products/Debug/${APP_NAME}"
 
-BUILD_PATH="$(find "${DERIVED_BASE}" -type d -name "${APP_NAME}" -path "*/Build/Products/Debug/*" -print -quit 2>/dev/null)"
+OPEN_AFTER=1
+for arg in "$@"; do
+    case "${arg}" in
+        --no-open) OPEN_AFTER=0 ;;
+        *) echo "Unknown flag: ${arg}" >&2; exit 2 ;;
+    esac
+done
 
-if [[ -z "${BUILD_PATH}" ]]; then
-    echo "Could not find a Debug build of ${APP_NAME} in DerivedData." >&2
-    echo "Build the app once from Xcode (⌘B) and re-run this script." >&2
+cd "${REPO_ROOT}"
+
+if [[ ! -d "${PROJECT}" ]] || [[ "${REPO_ROOT}/project.yml" -nt "${PROJECT}/project.pbxproj" ]]; then
+    if ! command -v xcodegen >/dev/null 2>&1; then
+        echo "xcodegen not found. Install with: brew install xcodegen" >&2
+        exit 1
+    fi
+    echo "==> Regenerating Xcode project"
+    xcodegen generate
+fi
+
+echo "==> Building ${SCHEME} (Debug)"
+xcodebuild \
+    -project "${PROJECT}" \
+    -scheme "${SCHEME}" \
+    -configuration Debug \
+    -destination 'platform=macOS' \
+    -derivedDataPath "${DERIVED}" \
+    -quiet \
+    build
+
+if [[ ! -d "${PRODUCT_PATH}" ]]; then
+    echo "Build succeeded but ${PRODUCT_PATH} is missing." >&2
     exit 1
 fi
 
-echo "==> Found build: ${BUILD_PATH}"
-
-osascript -e "do shell script \"rm -rf /Applications/${APP_NAME} && cp -R '${BUILD_PATH}' /Applications/ && /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/${APP_NAME}\" with administrator privileges"
+echo "==> Installing to /Applications (you'll be prompted for your password)"
+osascript -e "do shell script \"rm -rf /Applications/${APP_NAME} && cp -R '${PRODUCT_PATH}' /Applications/ && /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/${APP_NAME}\" with administrator privileges"
 
 echo "==> Installed /Applications/${APP_NAME}"
+
+if (( OPEN_AFTER )); then
+    # If a previous instance is still running, quit it cleanly so the new
+    # binary takes over (avoids "translocation" / stale-binary surprises).
+    osascript -e 'tell application "ReadAloud" to quit' 2>/dev/null || true
+    sleep 0.5
+    open "/Applications/${APP_NAME}"
+    echo "==> Launched. Grant Accessibility permission when prompted:"
+    echo "    System Settings ▸ Privacy & Security ▸ Accessibility ▸ ReadAloud"
+fi
