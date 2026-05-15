@@ -1,0 +1,64 @@
+name: ReadAloud
+options:
+  bundleIdPrefix: com.czlonkowski
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    GENERATE_INFOPLIST_FILE: NO
+    INFOPLIST_FILE: ReadAloud/Resources/Info.plist
+    CODE_SIGN_ENTITLEMENTS: ReadAloud/Resources/ReadAloud.entitlements
+    PRODUCT_BUNDLE_IDENTIFIER: com.czlonkowski.ReadAloud
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: "2.3.0"
+  SelectedTextKit:
+    url: https://github.com/tisfeng/SelectedTextKit
+    from: "2.0.0"
+targets:
+  ReadAloud:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: ReadAloud
+    resources:
+      - path: ReadAloud/Resources/Assets.xcassets
+    dependencies:
+      - package: KeyboardShortcuts
+        product: KeyboardShortcuts
+      - package: SelectedTextKit
+        product: SelectedTextKit
+    info:
+      path: ReadAloud/Resources/Info.plist
+      properties:
+        CFBundleName: Read Aloud
+        CFBundleDisplayName: Read Aloud
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
+        CFBundlePackageType: APPL
+        LSMinimumSystemVersion: "14.0"
+        LSApplicationCategoryType: public.app-category.productivity
+        LSUIElement: true
+        NSHumanReadableCopyright: "© 2026 Romuald Członkowski"
+        NSAppleEventsUsageDescription: "Read Aloud asks Safari and Chrome for the current text selection when the standard accessibility path doesn't expose it."
+        NSSupportsAutomaticTermination: true
+        NSSupportsSuddenTermination: false
