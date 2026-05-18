@@ -60,10 +60,13 @@ class ChatterboxEngine:
             from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # type: ignore
             import torch  # type: ignore
 
-            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
             self._torch = torch
-            self._model = ChatterboxMultilingualTTS.from_pretrained(device=device)
-            # Chatterbox renders at 24kHz natively in current releases.
+            loop = asyncio.get_running_loop()
+            self._model = await loop.run_in_executor(
+                None,
+                lambda: ChatterboxMultilingualTTS.from_pretrained(device=device),
+            )
             self._native_sr = int(getattr(self._model, "sr", 24_000))
 
     def _generate(

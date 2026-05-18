@@ -13,8 +13,9 @@ dependencies = [
     "soundfile>=0.12",
     # Inference engines — pinned loosely. The install-sidecar.sh script
     # resolves these via uv against the latest compatible builds.
-    "mlx-audio>=0.2.0",
-    "chatterbox-tts>=0.1.0",
+    "mlx-audio>=0.4.0",
+    "misaki[en]>=0.9",           # text frontend required by Kokoro (downloads spaCy en_core_web_sm)
+    "chatterbox-tts>=0.1.7",
     "torch>=2.4",
     "torchaudio>=2.4",
 ]

@@ -30,6 +30,14 @@ echo "==> Installing read-aloud-tts (this downloads ~2 GB of models on first run
 # shellcheck source=/dev/null
 VIRTUAL_ENV="${VENV_DIR}" uv pip install --python "${VENV_DIR}/bin/python" -e "${SIDECAR_DIR}"
 
+# misaki[en] extra doesn't always propagate the spaCy model wheel through
+# an editable install — install it explicitly so Kokoro's English G2P works
+# without trying to shell out to `python -m spacy download` (which fails in
+# a uv-managed venv that has no `pip`).
+echo "==> Installing en_core_web_sm (spaCy English model for Kokoro)"
+VIRTUAL_ENV="${VENV_DIR}" uv pip install --python "${VENV_DIR}/bin/python" \
+    "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
 echo "==> Writing launchd plist to ${PLIST_PATH}"
 cat > "${PLIST_PATH}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
