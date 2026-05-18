@@ -8,10 +8,12 @@ from dataclasses import dataclass
 HOST = "127.0.0.1"
 PORT = 8000
 
-# Drop loaded models from memory after this many seconds idle. Kokoro is small
-# (~330 MB) so 5 minutes is fine; Chatterbox is ~1 GB so we want to release it
-# when the user walks away.
-IDLE_UNLOAD_SECONDS = 300
+# Drop loaded models from memory after this many seconds idle. Kokoro (~330 MB)
+# warms up in <1 s so reloading is cheap. Chatterbox (~1 GB) takes ~30 s to
+# load, so a generous window matters more than the memory savings on a 32 GB
+# machine. Override per-engine below.
+KOKORO_IDLE_UNLOAD_SECONDS = 600
+CHATTERBOX_IDLE_UNLOAD_SECONDS = 3 * 3600  # effectively "until the sidecar restarts"
 
 
 @dataclass(frozen=True)

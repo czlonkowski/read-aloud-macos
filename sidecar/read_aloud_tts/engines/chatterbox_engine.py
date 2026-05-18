@@ -57,8 +57,11 @@ class ChatterboxEngine:
         async with self._lock:
             if self._model is not None:
                 return
-            from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # type: ignore
             import torch  # type: ignore
+
+            self._patch_torch_for_apple_silicon(torch)
+
+            from chatterbox.mtl_tts import ChatterboxMultilingualTTS  # type: ignore
 
             device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
             self._torch = torch
@@ -68,6 +71,34 @@ class ChatterboxEngine:
                 lambda: ChatterboxMultilingualTTS.from_pretrained(device=device),
             )
             self._native_sr = int(getattr(self._model, "sr", 24_000))
+
+    @staticmethod
+    def _patch_torch_for_apple_silicon(torch_module) -> None:
+        """Bypass `torch.serialization._validate_device`'s CUDA-availability check.
+
+        Chatterbox's checkpoints were uploaded with `cuda:0` tensor storage.
+        Under `weights_only=True` (which chatterbox uses), torch validates the
+        original tensor device before applying `map_location`, so loading
+        fails on any machine without CUDA — including every Apple Silicon
+        Mac. Patching once at startup is harmless; legitimate calls fall
+        through to the real validator.
+        """
+        import torch.serialization as _ts  # type: ignore
+
+        if getattr(_ts, "_read_aloud_patched", False):
+            return
+        original = _ts._validate_device
+
+        def lenient(location, backend_name):
+            try:
+                return original(location, backend_name)
+            except RuntimeError:
+                # map_location remaps the storage afterwards, so any device the
+                # original validator rejects is fine to return as CPU here.
+                return torch_module.device("cpu")
+
+        _ts._validate_device = lenient
+        _ts._read_aloud_patched = True
 
     def _generate(
         self,

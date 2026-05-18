@@ -82,7 +82,10 @@ final class TTSCoordinator {
     }
 
     func warmUpSidecar() {
-        Task { _ = await sidecar.start() }
+        Task {
+            let started = await sidecar.start()
+            if started { sidecar.warmUp() }
+        }
     }
 
     private func update(_ newState: PlaybackState) {

@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field
 from .config import (
     HOST,
     PORT,
-    IDLE_UNLOAD_SECONDS,
+    KOKORO_IDLE_UNLOAD_SECONDS,
+    CHATTERBOX_IDLE_UNLOAD_SECONDS,
     CHATTERBOX_VOICES,
     KOKORO_VOICES,
     all_voices,
@@ -58,7 +59,22 @@ class SpeechRequest(BaseModel):
 
 @app.get("/healthz")
 async def healthz() -> JSONResponse:
-    return JSONResponse({"ok": True, "version": "0.1.0"})
+    return JSONResponse(
+        {
+            "ok": True,
+            "version": "0.1.0",
+            "kokoro_loaded": kokoro._model is not None,
+            "chatterbox_loaded": chatterbox._model is not None,
+        }
+    )
+
+
+@app.post("/v1/warmup")
+async def warmup() -> JSONResponse:
+    """Eagerly load both engines. Idempotent — re-calling is a no-op."""
+    await kokoro._ensure_loaded()
+    await chatterbox._ensure_loaded()
+    return JSONResponse({"ok": True})
 
 
 @app.get("/v1/voices")
@@ -112,14 +128,27 @@ async def _pcm_stream(audio_iter: AsyncIterator[np.ndarray]) -> AsyncIterator[by
 
 
 @app.on_event("startup")
-async def _start_idle_unloader() -> None:
-    async def loop() -> None:
+async def _on_startup() -> None:
+    """Eagerly load both engines so the first user request is warm."""
+
+    async def warmup_task() -> None:
+        try:
+            log.info("eager warmup: loading Kokoro…")
+            await kokoro._ensure_loaded()
+            log.info("eager warmup: loading Chatterbox…")
+            await chatterbox._ensure_loaded()
+            log.info("eager warmup: done")
+        except Exception:
+            log.exception("eager warmup failed")
+
+    async def unloader() -> None:
         while True:
             await asyncio.sleep(60)
-            kokoro.maybe_unload(IDLE_UNLOAD_SECONDS)
-            chatterbox.maybe_unload(IDLE_UNLOAD_SECONDS)
+            kokoro.maybe_unload(KOKORO_IDLE_UNLOAD_SECONDS)
+            chatterbox.maybe_unload(CHATTERBOX_IDLE_UNLOAD_SECONDS)
 
-    asyncio.create_task(loop())
+    asyncio.create_task(warmup_task())
+    asyncio.create_task(unloader())
 
 
 def run() -> None:

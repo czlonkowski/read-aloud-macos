@@ -17,6 +17,7 @@ final class SidecarController {
 
     static let label = "com.czlonkowski.readaloud-sidecar"
     static let healthURL = URL(string: "http://127.0.0.1:8000/healthz")!
+    static let warmupURL = URL(string: "http://127.0.0.1:8000/v1/warmup")!
 
     private(set) var status: Status = .unknown
     private(set) var lastError: String?
@@ -56,6 +57,23 @@ final class SidecarController {
         }
         status = .failed("Sidecar did not become healthy within 10s")
         return false
+    }
+
+    /// Fire-and-forget POST to /v1/warmup so the sidecar starts loading both
+    /// engines in the background. We don't await completion — first synth
+    /// will still block until models are loaded if needed.
+    func warmUp() {
+        Task {
+            var request = URLRequest(url: Self.warmupURL)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 120
+            do {
+                _ = try await URLSession.shared.data(for: request)
+                Log.sidecar.notice("Warmup request completed")
+            } catch {
+                Log.sidecar.error("Warmup failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     func stop() {
