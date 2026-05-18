@@ -12,6 +12,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SIDECAR_DIR="${REPO_ROOT}/sidecar"
 SUPPORT_DIR="${HOME}/Library/Application Support/ReadAloud"
 VENV_DIR="${SUPPORT_DIR}/sidecar-venv"
+PIPER_DIR="${SUPPORT_DIR}/piper-voices"
 AGENT_LABEL="com.czlonkowski.readaloud-sidecar"
 PLIST_PATH="${HOME}/Library/LaunchAgents/${AGENT_LABEL}.plist"
 LOG_DIR="${SUPPORT_DIR}/logs"
@@ -21,13 +22,12 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "${SUPPORT_DIR}" "${LOG_DIR}" "$(dirname "${PLIST_PATH}")"
+mkdir -p "${SUPPORT_DIR}" "${LOG_DIR}" "${PIPER_DIR}" "$(dirname "${PLIST_PATH}")"
 
 echo "==> Creating Python environment at ${VENV_DIR}"
 uv venv --python 3.12 "${VENV_DIR}"
 
-echo "==> Installing read-aloud-tts (this downloads ~2 GB of models on first run)"
-# shellcheck source=/dev/null
+echo "==> Installing read-aloud-tts (≈600 MB on first run for Kokoro + ONNX runtime)"
 VIRTUAL_ENV="${VENV_DIR}" uv pip install --python "${VENV_DIR}/bin/python" -e "${SIDECAR_DIR}"
 
 # misaki[en] extra doesn't always propagate the spaCy model wheel through
@@ -37,6 +37,16 @@ VIRTUAL_ENV="${VENV_DIR}" uv pip install --python "${VENV_DIR}/bin/python" -e "$
 echo "==> Installing en_core_web_sm (spaCy English model for Kokoro)"
 VIRTUAL_ENV="${VENV_DIR}" uv pip install --python "${VENV_DIR}/bin/python" \
     "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
+PIPER_REPO="https://huggingface.co/WitoldG/polish_piper_models/resolve/main"
+PIPER_VOICE="pl_PL-justyna_wg_glos-medium"
+if [[ ! -f "${PIPER_DIR}/${PIPER_VOICE}.onnx" ]]; then
+    echo "==> Downloading Piper Polish voice ‘Justyna’ (≈60 MB)"
+    curl -sL --fail -o "${PIPER_DIR}/${PIPER_VOICE}.onnx" \
+        "${PIPER_REPO}/${PIPER_VOICE}.onnx"
+    curl -sL --fail -o "${PIPER_DIR}/${PIPER_VOICE}.onnx.json" \
+        "${PIPER_REPO}/${PIPER_VOICE}.onnx.json"
+fi
 
 echo "==> Writing launchd plist to ${PLIST_PATH}"
 cat > "${PLIST_PATH}" <<EOF
@@ -56,8 +66,6 @@ cat > "${PLIST_PATH}" <<EOF
     <dict>
         <key>HF_HOME</key>
         <string>${SUPPORT_DIR}/huggingface</string>
-        <key>PYTORCH_ENABLE_MPS_FALLBACK</key>
-        <string>1</string>
     </dict>
     <key>RunAtLoad</key>
     <false/>

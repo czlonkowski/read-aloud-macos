@@ -95,15 +95,15 @@ final class TTSCoordinator {
 
     private func defaultSidecarVoice(for language: SpokenLanguage) -> String {
         switch language {
-        case .english: "af_heart"      // Kokoro default female voice
-        case .polish:  "pl_speaker_01" // Chatterbox Polish reference (provided by sidecar)
+        case .english: "af_heart"   // Kokoro default
+        case .polish:  "pl_justyna" // Piper "Justyna" (WitoldG Polish models)
         }
     }
 
     private func sidecarModel(for language: SpokenLanguage) -> String {
         switch language {
         case .english: "kokoro"
-        case .polish:  "chatterbox"
+        case .polish:  "piper"
         }
     }
 }

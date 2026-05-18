@@ -1,10 +1,10 @@
 """FastAPI sidecar exposing an OpenAI-compatible /v1/audio/speech endpoint.
 
 Routes by the `model` field of the request body:
-- "kokoro"     → Kokoro-82M (English)
-- "chatterbox" → Chatterbox Multilingual (Polish)
+- "kokoro" → Kokoro-82M (English, MLX)
+- "piper"  → Piper TTS (Polish via Justyna voice, ONNX)
 
-The response is streaming 16-bit PCM at 24kHz (`response_format=pcm`) or a
+The response is streaming 16-bit PCM at 24 kHz (`response_format=pcm`) or a
 single WAV file (`response_format=wav`). The Swift client always uses PCM.
 """
 
@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from pathlib import Path
 from typing import AsyncIterator, Literal
 
 import numpy as np
@@ -26,30 +25,27 @@ from .config import (
     HOST,
     PORT,
     KOKORO_IDLE_UNLOAD_SECONDS,
-    CHATTERBOX_IDLE_UNLOAD_SECONDS,
-    CHATTERBOX_VOICES,
+    PIPER_IDLE_UNLOAD_SECONDS,
+    PIPER_VOICES,
+    PIPER_VOICES_DIR,
     KOKORO_VOICES,
-    all_voices,
 )
 from .engines.kokoro_engine import KokoroEngine
-from .engines.chatterbox_engine import ChatterboxEngine
+from .engines.piper_engine import PiperEngine
 
 
 log = logging.getLogger("read_aloud_tts")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 
-SIDECAR_ROOT = Path(__file__).resolve().parent.parent
-VOICES_DIR = SIDECAR_ROOT / "voices"
-
 kokoro = KokoroEngine()
-chatterbox = ChatterboxEngine(voices_dir=VOICES_DIR)
+piper = PiperEngine(voices_dir=PIPER_VOICES_DIR)
 
-app = FastAPI(title="Read Aloud TTS", version="0.1.0")
+app = FastAPI(title="Read Aloud TTS", version="0.2.0")
 
 
 class SpeechRequest(BaseModel):
-    model: Literal["kokoro", "chatterbox"]
+    model: Literal["kokoro", "piper"]
     voice: str
     input: str = Field(min_length=1, max_length=8_000)
     stream: bool = True
@@ -62,9 +58,19 @@ async def healthz() -> JSONResponse:
     return JSONResponse(
         {
             "ok": True,
-            "version": "0.1.0",
+            "version": "0.2.0",
             "kokoro_loaded": kokoro._model is not None,
-            "chatterbox_loaded": chatterbox._model is not None,
+            "piper_loaded": piper.loaded,
+        }
+    )
+
+
+@app.get("/v1/voices")
+async def voices() -> JSONResponse:
+    return JSONResponse(
+        {
+            "kokoro": [v.__dict__ for v in KOKORO_VOICES],
+            "piper": [v.__dict__ for v in PIPER_VOICES],
         }
     )
 
@@ -73,18 +79,12 @@ async def healthz() -> JSONResponse:
 async def warmup() -> JSONResponse:
     """Eagerly load both engines. Idempotent — re-calling is a no-op."""
     await kokoro._ensure_loaded()
-    await chatterbox._ensure_loaded()
+    # Warm the default Piper voice (Justyna).
+    if PIPER_VOICES:
+        v = PIPER_VOICES[0]
+        if v.voice_file:
+            await piper._ensure_loaded(v.id, v.voice_file)
     return JSONResponse({"ok": True})
-
-
-@app.get("/v1/voices")
-async def voices() -> JSONResponse:
-    return JSONResponse(
-        {
-            "kokoro": [v.__dict__ for v in KOKORO_VOICES],
-            "chatterbox": [v.__dict__ for v in CHATTERBOX_VOICES],
-        }
-    )
 
 
 @app.post("/v1/audio/speech")
@@ -96,18 +96,13 @@ async def speech(req: SpeechRequest):
         if req.voice not in {v.id for v in KOKORO_VOICES}:
             raise HTTPException(status_code=400, detail=f"Unknown Kokoro voice {req.voice}")
         audio_iter = kokoro.synth(req.input, voice=req.voice)
-    else:
-        match = next((v for v in CHATTERBOX_VOICES if v.id == req.voice), None)
-        if match is None:
-            raise HTTPException(status_code=400, detail=f"Unknown Chatterbox voice {req.voice}")
-        audio_iter = chatterbox.synth(
-            req.input,
-            voice=req.voice,
-            reference_path=match.reference_path,
-        )
+    else:  # piper
+        match = next((v for v in PIPER_VOICES if v.id == req.voice), None)
+        if match is None or not match.voice_file:
+            raise HTTPException(status_code=400, detail=f"Unknown Piper voice {req.voice}")
+        audio_iter = piper.synth(req.input, voice=req.voice, voice_file=match.voice_file)
 
     if req.response_format == "wav":
-        # Non-streaming WAV path: collect everything and emit one file.
         chunks: list[np.ndarray] = []
         async for arr in audio_iter:
             chunks.append(arr)
@@ -129,14 +124,13 @@ async def _pcm_stream(audio_iter: AsyncIterator[np.ndarray]) -> AsyncIterator[by
 
 @app.on_event("startup")
 async def _on_startup() -> None:
-    """Eagerly load both engines so the first user request is warm."""
-
     async def warmup_task() -> None:
         try:
             log.info("eager warmup: loading Kokoro…")
             await kokoro._ensure_loaded()
-            log.info("eager warmup: loading Chatterbox…")
-            await chatterbox._ensure_loaded()
+            if PIPER_VOICES and PIPER_VOICES[0].voice_file:
+                log.info("eager warmup: loading Piper Justyna…")
+                await piper._ensure_loaded(PIPER_VOICES[0].id, PIPER_VOICES[0].voice_file)
             log.info("eager warmup: done")
         except Exception:
             log.exception("eager warmup failed")
@@ -145,7 +139,7 @@ async def _on_startup() -> None:
         while True:
             await asyncio.sleep(60)
             kokoro.maybe_unload(KOKORO_IDLE_UNLOAD_SECONDS)
-            chatterbox.maybe_unload(CHATTERBOX_IDLE_UNLOAD_SECONDS)
+            piper.maybe_unload(PIPER_IDLE_UNLOAD_SECONDS)
 
     asyncio.create_task(warmup_task())
     asyncio.create_task(unloader())

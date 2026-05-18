@@ -115,8 +115,7 @@ enum SidecarVoiceLibrary {
             ]
         case .polish:
             return [
-                VoiceSelection(id: "pl_speaker_01", displayName: "Reference 1 (Chatterbox PL)"),
-                VoiceSelection(id: "pl_speaker_02", displayName: "Reference 2 (Chatterbox PL)")
+                VoiceSelection(id: "pl_justyna", displayName: "Justyna (Piper)")
             ]
         }
     }

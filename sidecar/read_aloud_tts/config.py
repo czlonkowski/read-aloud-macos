@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 HOST = "127.0.0.1"
 PORT = 8000
 
 # Drop loaded models from memory after this many seconds idle. Kokoro (~330 MB)
-# warms up in <1 s so reloading is cheap. Chatterbox (~1 GB) takes ~30 s to
-# load, so a generous window matters more than the memory savings on a 32 GB
-# machine. Override per-engine below.
+# warms up in <1 s so reloading is cheap. Piper (~60 MB) is even smaller and
+# loads in ~200 ms; we still keep both warm by default to avoid any wait on
+# the first hotkey press.
 KOKORO_IDLE_UNLOAD_SECONDS = 600
-CHATTERBOX_IDLE_UNLOAD_SECONDS = 3 * 3600  # effectively "until the sidecar restarts"
+PIPER_IDLE_UNLOAD_SECONDS = 600
+
+# Piper voice files live outside the repo because they're 60 MB ONNX models.
+# install-sidecar.sh downloads them to this location.
+PIPER_VOICES_DIR = Path(
+    os.path.expanduser("~/Library/Application Support/ReadAloud/piper-voices")
+)
 
 
 @dataclass(frozen=True)
@@ -21,12 +29,10 @@ class VoiceEntry:
     id: str
     display_name: str
     language: str  # "en" or "pl"
-    # For Chatterbox: path (relative to sidecar/voices/) of the reference WAV.
-    reference_path: str | None = None
+    # For Piper: filename (relative to PIPER_VOICES_DIR) of the .onnx model.
+    voice_file: str | None = None
 
 
-# v0.1 voice library. The Chatterbox references are added by `install-sidecar.sh`
-# (or copied manually); Kokoro voices are baked into the model.
 KOKORO_VOICES: list[VoiceEntry] = [
     VoiceEntry(id="af_heart",   display_name="Heart",   language="en"),
     VoiceEntry(id="af_bella",   display_name="Bella",   language="en"),
@@ -34,21 +40,15 @@ KOKORO_VOICES: list[VoiceEntry] = [
     VoiceEntry(id="am_adam",    display_name="Adam",    language="en"),
 ]
 
-CHATTERBOX_VOICES: list[VoiceEntry] = [
+PIPER_VOICES: list[VoiceEntry] = [
     VoiceEntry(
-        id="pl_speaker_01",
-        display_name="Polish Reference 1",
+        id="pl_justyna",
+        display_name="Justyna",
         language="pl",
-        reference_path="pl_speaker_01.wav",
-    ),
-    VoiceEntry(
-        id="pl_speaker_02",
-        display_name="Polish Reference 2",
-        language="pl",
-        reference_path="pl_speaker_02.wav",
+        voice_file="pl_PL-justyna_wg_glos-medium.onnx",
     ),
 ]
 
 
 def all_voices() -> list[VoiceEntry]:
-    return KOKORO_VOICES + CHATTERBOX_VOICES
+    return KOKORO_VOICES + PIPER_VOICES

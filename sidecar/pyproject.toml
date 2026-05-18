@@ -1,7 +1,7 @@
 [project]
 name = "read-aloud-tts"
 version = "0.1.0"
-description = "Local Kokoro (English) + Chatterbox Multilingual (Polish) TTS sidecar for Read Aloud.app"
+description = "Local Kokoro (English) + Piper (Polish) TTS sidecar for Read Aloud.app"
 requires-python = ">=3.11,<3.13"
 authors = [{ name = "Romuald Członkowski" }]
 license = { text = "MIT" }
@@ -11,17 +11,10 @@ dependencies = [
     "pydantic>=2.9",
     "numpy>=1.26",
     "soundfile>=0.12",
-    # Inference engines — pinned loosely. The install-sidecar.sh script
-    # resolves these via uv against the latest compatible builds.
+    # Inference engines.
     "mlx-audio>=0.4.0",
-    "misaki[en]>=0.9",           # text frontend required by Kokoro (downloads spaCy en_core_web_sm)
-    "chatterbox-tts>=0.1.7",
-    "torch>=2.4",
-    "torchaudio>=2.4",
-    # `resemble-perth` (a chatterbox-tts watermarking dep) still imports
-    # `pkg_resources`, which setuptools 81 removed. Keep <81 until perth
-    # ships a modernised release.
-    "setuptools<81",
+    "misaki[en]>=0.9",   # Kokoro's English G2P (pulls spaCy en_core_web_sm transitively)
+    "piper-tts>=1.4",    # Polish + bundled-espeak phonemization, runs ONNX ~30x real-time
 ]
 
 [project.scripts]
