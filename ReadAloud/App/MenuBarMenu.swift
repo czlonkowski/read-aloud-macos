@@ -21,11 +21,11 @@ struct MenuBarMenu: View {
 
     @ViewBuilder
     private var diagnosticsSection: some View {
-        Menu("Diagnostics") {
-            Button("Speak test phrase (English)") { state.speakLiteral(.english) }
-            Button("Speak test phrase (Polish)") { state.speakLiteral(.polish) }
-            Button("Read pasteboard") { state.speakPasteboard() }
-        }
+        // Flat (not in a submenu) — SwiftUI's Menu nesting inside MenuBarExtra
+        // is unreliable on some macOS versions.
+        Button("Speak test (EN)") { state.speakLiteral(.english) }
+        Button("Speak test (PL)") { state.speakLiteral(.polish) }
+        Button("Speak pasteboard") { state.speakPasteboard() }
     }
 
     @ViewBuilder

@@ -88,6 +88,7 @@ final class AppState {
     /// Speaks a known-good test phrase. Bypasses selection capture so you can
     /// verify audio output is working independently of the AX path.
     func speakLiteral(_ language: SpokenLanguage) {
+        Log.tts.notice("speakLiteral(\(language.rawValue, privacy: .public)) invoked")
         currentReadTask?.cancel()
         let text: String = switch language {
         case .english: "Hello. This is Read Aloud, ready to read your selection."
@@ -97,12 +98,15 @@ final class AppState {
         lastRead = request
         currentReadTask = Task { [weak self] in
             guard let self else { return }
+            Log.tts.notice("speakLiteral Task running")
             await self.coordinator.speak(request, preferences: self.preferences, rules: self.pronunciationRules)
+            Log.tts.notice("speakLiteral Task done")
         }
     }
 
     /// Speaks whatever string is currently on the pasteboard.
     func speakPasteboard() {
+        Log.tts.notice("speakPasteboard invoked")
         guard let text = NSPasteboard.general.string(forType: .string),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             Task { await self.flashError("Pasteboard is empty") }

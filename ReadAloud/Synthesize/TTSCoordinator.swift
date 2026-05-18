@@ -15,6 +15,7 @@ final class TTSCoordinator {
     var onStateChange: ((PlaybackState) -> Void)?
 
     func speak(_ request: ReadRequest, preferences: PreferencesStore.Snapshot, rules: [PronunciationRule]) async {
+        Log.tts.notice("TTSCoordinator.speak text.count=\(request.text.count, privacy: .public) lang=\(request.language.rawValue, privacy: .public)")
         stop()
         update(.preparing)
 
