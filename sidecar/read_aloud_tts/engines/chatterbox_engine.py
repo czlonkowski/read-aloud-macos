@@ -22,6 +22,12 @@ class ChatterboxEngine:
         self._native_sr: int | None = None
         self._last_used: float = 0.0
         self._lock = asyncio.Lock()
+        # Serializes generate() calls. Chatterbox keeps mutable state on the
+        # model instance (alignment_stream_analyzer's last_aligned_attns,
+        # KV caches, conditional embeddings) that gets corrupted when two
+        # generations run in parallel. Symptoms: "stack expects each tensor
+        # to be equal size" errors and silent failures.
+        self._inference_lock = asyncio.Lock()
         self._voices_dir = voices_dir
 
     async def synth(
@@ -33,13 +39,14 @@ class ChatterboxEngine:
         await self._ensure_loaded()
         self._last_used = time.monotonic()
         loop = asyncio.get_running_loop()
-        audio, sr = await loop.run_in_executor(
-            None,
-            self._generate,
-            text,
-            voice,
-            reference_path,
-        )
+        async with self._inference_lock:
+            audio, sr = await loop.run_in_executor(
+                None,
+                self._generate,
+                text,
+                voice,
+                reference_path,
+            )
         if sr != self.SAMPLE_RATE:
             audio = self._resample(audio, sr, self.SAMPLE_RATE)
         chunk = self.SAMPLE_RATE // 5

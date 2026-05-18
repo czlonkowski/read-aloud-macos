@@ -4,7 +4,10 @@ import AVFoundation
 /// Streams PCM from the local Python sidecar's OpenAI-compatible
 /// `/v1/audio/speech` endpoint into a shared `StreamingPlayer`.
 ///
-/// Wire only — won't be exercised until the sidecar is installed.
+/// Pipelining: chunks the input by sentence, then fetches chunk *N+1*'s PCM
+/// while chunk *N* is being awaited, so the sidecar is never idle waiting on
+/// the client. Buffers reach the player in strict sentence order — no
+/// interleaving.
 @MainActor
 final class SidecarEngine {
     private let endpoint = URL(string: "http://127.0.0.1:8000/v1/audio/speech")!
@@ -32,26 +35,46 @@ final class SidecarEngine {
         rate: Float
     ) async {
         currentTask?.cancel()
+        let chunks = SentenceChunker.chunks(from: text)
+        guard !chunks.isEmpty else { return }
+        Log.tts.notice("SidecarEngine pipelining \(chunks.count, privacy: .public) chunks via \(modelID, privacy: .public)")
+
         let task = Task<Void, Never> { [endpoint, player] in
-            let chunks = SentenceChunker.chunks(from: text)
-            for chunk in chunks {
-                if Task.isCancelled { break }
-                await Self.streamOne(
-                    endpoint: endpoint,
-                    request: .init(
+            func render(_ chunk: String) -> Task<[Float]?, Never> {
+                Task<[Float]?, Never>.detached(priority: .userInitiated) {
+                    let request = Request(
                         model: modelID,
                         voice: voiceID,
                         input: chunk,
-                        stream: true,
+                        stream: false,
                         response_format: "pcm",
                         sample_rate: 24_000
-                    ),
-                    into: player
-                )
+                    )
+                    return await Self.fetchPCM(endpoint: endpoint, request: request)
+                }
+            }
+
+            // Kick off chunk 0; thereafter keep one chunk pre-rendering ahead.
+            var pending: Task<[Float]?, Never>? = render(chunks[0])
+            for i in 0..<chunks.count {
+                if Task.isCancelled {
+                    pending?.cancel()
+                    break
+                }
+                let next: Task<[Float]?, Never>? =
+                    (i + 1 < chunks.count) ? render(chunks[i + 1]) : nil
+
+                if let pcm = await pending?.value, !Task.isCancelled {
+                    await MainActor.run {
+                        player.enqueue(pcm, sampleRate: 24_000)
+                    }
+                }
+                pending = next
             }
         }
         currentTask = task
         await task.value
+        Log.tts.notice("SidecarEngine speak finished")
     }
 
     func stop() {
@@ -59,54 +82,46 @@ final class SidecarEngine {
         player.flush()
     }
 
-    private static func streamOne(
-        endpoint: URL,
-        request: Request,
-        into player: StreamingPlayer
-    ) async {
+    /// Downloads a chunk's PCM (int16, little-endian, 24 kHz) into a Float
+    /// array. Returns `nil` on transport / server errors so the loop in
+    /// `speak` skips the chunk instead of throwing.
+    private static func fetchPCM(endpoint: URL, request: Request) async -> [Float]? {
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.timeoutInterval = 60
+        urlRequest.timeoutInterval = 120
         do {
             urlRequest.httpBody = try JSONEncoder().encode(request)
         } catch {
             Log.tts.error("Sidecar request encode failed: \(error.localizedDescription, privacy: .public)")
-            return
+            return nil
         }
+
         do {
-            let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
+            let (data, response) = try await URLSession.shared.data(for: urlRequest)
             if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-                Log.tts.error("Sidecar returned HTTP \(http.statusCode, privacy: .public)")
-                return
+                Log.tts.error("Sidecar returned HTTP \(http.statusCode, privacy: .public) — body: \(String(data: data, encoding: .utf8) ?? "<binary>", privacy: .public)")
+                return nil
             }
-            var pair = [UInt8](repeating: 0, count: 2)
-            var pairFill = 0
-            var floatBuf: [Float] = []
-            floatBuf.reserveCapacity(4_800)
-            for try await byte in bytes {
-                if Task.isCancelled { break }
-                pair[pairFill] = byte
-                pairFill += 1
-                if pairFill == 2 {
-                    let raw = UInt16(pair[0]) | (UInt16(pair[1]) << 8)
-                    let sample = Int16(bitPattern: raw)
-                    floatBuf.append(Float(sample) / 32_768.0)
-                    pairFill = 0
-                    if floatBuf.count >= 4_800 {
-                        await MainActor.run { player.enqueue(floatBuf, sampleRate: 24_000) }
-                        floatBuf.removeAll(keepingCapacity: true)
-                    }
-                }
-            }
-            if !floatBuf.isEmpty {
-                let tail = floatBuf
-                await MainActor.run { player.enqueue(tail, sampleRate: 24_000) }
-            }
+            return Self.decodePCM16(data)
         } catch {
             if !(error is CancellationError) {
-                Log.tts.error("Sidecar stream error: \(error.localizedDescription, privacy: .public)")
+                Log.tts.error("Sidecar fetch error: \(error.localizedDescription, privacy: .public)")
+            }
+            return nil
+        }
+    }
+
+    /// Decode interleaved int16 little-endian PCM into normalized Float32.
+    private static func decodePCM16(_ data: Data) -> [Float] {
+        let sampleCount = data.count / 2
+        var floats = [Float](repeating: 0, count: sampleCount)
+        data.withUnsafeBytes { raw in
+            let ints = raw.bindMemory(to: Int16.self)
+            for i in 0..<sampleCount {
+                floats[i] = Float(ints[i]) / 32_768.0
             }
         }
+        return floats
     }
 }

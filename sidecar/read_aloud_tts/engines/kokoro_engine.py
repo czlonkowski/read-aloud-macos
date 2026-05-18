@@ -28,34 +28,39 @@ class KokoroEngine:
         self._model = None
         self._last_used: float = 0.0
         self._load_lock = asyncio.Lock()
+        # Serializes generate() calls — mlx-audio's Kokoro pipeline holds
+        # per-language pipeline state that isn't safe to share across
+        # concurrent generate() invocations.
+        self._inference_lock = asyncio.Lock()
 
     async def synth(self, text: str, voice: str) -> AsyncIterator[np.ndarray]:
         await self._ensure_loaded()
         self._last_used = time.monotonic()
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[np.ndarray | None] = asyncio.Queue(maxsize=4)
+        async with self._inference_lock:
+            queue: asyncio.Queue[np.ndarray | None] = asyncio.Queue(maxsize=4)
 
-        def producer() -> None:
+            def producer() -> None:
+                try:
+                    for chunk in self._model.generate(text=text, voice=voice):
+                        audio = np.asarray(chunk.audio, dtype=np.float32)
+                        loop.call_soon_threadsafe(queue.put_nowait, audio)
+                except Exception as exc:  # surface as terminating sentinel
+                    loop.call_soon_threadsafe(queue.put_nowait, exc)  # type: ignore[arg-type]
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            fut = loop.run_in_executor(None, producer)
             try:
-                for chunk in self._model.generate(text=text, voice=voice):
-                    audio = np.asarray(chunk.audio, dtype=np.float32)
-                    loop.call_soon_threadsafe(queue.put_nowait, audio)
-            except Exception as exc:  # surface as terminating sentinel
-                loop.call_soon_threadsafe(queue.put_nowait, exc)  # type: ignore[arg-type]
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        break
+                    if isinstance(item, Exception):
+                        raise item
+                    yield item
             finally:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-
-        fut = loop.run_in_executor(None, producer)
-        try:
-            while True:
-                item = await queue.get()
-                if item is None:
-                    break
-                if isinstance(item, Exception):
-                    raise item
-                yield item
-        finally:
-            await fut
+                await fut
 
     def maybe_unload(self, idle_seconds: float) -> None:
         if self._model is not None and time.monotonic() - self._last_used > idle_seconds:
